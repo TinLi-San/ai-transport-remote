@@ -23,11 +23,15 @@ static const char *TAG = "media_remote";
 #define DEVICE_NAME "AI Transport Remote"
 
 // 枚举取值一致性：media_cmd.h 与 bsp_button.h 故意对齐，由编译期断言守住。
-_Static_assert(BSP_BTN_UP == MEDIA_BTN_UP && BSP_BTN_DOWN == MEDIA_BTN_DOWN &&
-               BSP_BTN_OK == MEDIA_BTN_OK, "button enum mismatch");
-_Static_assert(BSP_BTN_PRESS == MEDIA_EV_PRESS && BSP_BTN_CLICK == MEDIA_EV_CLICK &&
-               BSP_BTN_DOUBLE == MEDIA_EV_DOUBLE && BSP_BTN_LONG == MEDIA_EV_LONG &&
-               BSP_BTN_RELEASE == MEDIA_EV_RELEASE, "button event enum mismatch");
+// (强转 int 以避免 -Wenum-compare 把两个枚举间的比较当成错误。)
+_Static_assert((int)BSP_BTN_UP == (int)MEDIA_BTN_UP &&
+               (int)BSP_BTN_DOWN == (int)MEDIA_BTN_DOWN &&
+               (int)BSP_BTN_OK == (int)MEDIA_BTN_OK, "button enum mismatch");
+_Static_assert((int)BSP_BTN_PRESS == (int)MEDIA_EV_PRESS &&
+               (int)BSP_BTN_CLICK == (int)MEDIA_EV_CLICK &&
+               (int)BSP_BTN_DOUBLE == (int)MEDIA_EV_DOUBLE &&
+               (int)BSP_BTN_LONG == (int)MEDIA_EV_LONG &&
+               (int)BSP_BTN_RELEASE == (int)MEDIA_EV_RELEASE, "button event enum mismatch");
 
 // NimBLE 配置存储初始化(sdkconfig 未开 NVS 持久化时为 RAM 存储)。无公开头，向前声明。
 void ble_store_config_init(void);

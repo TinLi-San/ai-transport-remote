@@ -44,3 +44,5 @@ CONFIG_BT_NIMBLE_HOST_BASED_PRIVACY=n
 CONFIG_BT_NIMBLE_NVS_PERSIST=n
 # HOGP 配对需 Secure Connections + 绑定（代码里已设 sm_sc/bonding），SM 栈开满级别。
 CONFIG_BT_NIMBLE_SM_LVL=2
+# esp_hid 的 NimBLE 设备传输(nimble_hidd.c)与 HID 服务(ble_svc_hid)由它门控，必须开启。
+CONFIG_BT_NIMBLE_HID_SERVICE=y
