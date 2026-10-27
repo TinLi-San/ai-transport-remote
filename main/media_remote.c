@@ -20,7 +20,8 @@
 
 static const char *TAG = "media_remote";
 
-#define DEVICE_NAME "AI Transport Remote"
+// 名称同时进入广播包(31 字节上限)与 GATT 设备名；保持较短以留出广播余量。
+#define DEVICE_NAME "AI Transport"
 
 // 枚举取值一致性：media_cmd.h 与 bsp_button.h 故意对齐，由编译期断言守住。
 // (强转 int 以避免 -Wenum-compare 把两个枚举间的比较当成错误。)

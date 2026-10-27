@@ -64,8 +64,8 @@ esp_err_t ble_hid_gap_adv_init(const char *device_name)
     s_adv_fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     s_adv_fields.appearance = HID_APPEARANCE_GENERIC;
     s_adv_fields.appearance_is_present = 1;
-    s_adv_fields.tx_pwr_lvl_is_present = 1;
-    s_adv_fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
+    // 广播包上限 31 字节：flags(3)+appearance(4)+name(2+L)+UUID16(4)。这里不放
+    // tx_pwr(省 3 字节)以保证足够余量，避免 ble_gap_adv_set_fields 返回 EMSGSIZE。
     s_adv_fields.name = (const uint8_t *)device_name;
     s_adv_fields.name_len = strlen(device_name);
     s_adv_fields.name_is_complete = 1;
@@ -99,8 +99,9 @@ esp_err_t ble_hid_gap_adv_start(void)
     adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(30);
     adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(50);
 
-    // duration_ms = 0 → 永久广播(断开后在 ESP_HIDD_DISCONNECT 回调里重开)。
-    rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, 0, &adv_params,
+    // duration_ms = BLE_HS_FOREVER → 永久广播(断开后在 ESP_HIDD_DISCONNECT 回调里重开)。
+    // 注意：传 0 表示“0 毫秒”会立即停止广播，必须用 BLE_HS_FOREVER(INT32_MAX)。
+    rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER, &adv_params,
                            gap_event_cb, NULL);
     if (rc != 0) {
         ESP_LOGE(TAG, "adv start failed: rc=%d", rc);
