@@ -15,6 +15,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_store.h"
 #include "nimble/nimble_port_freertos.h"
+#include "services/gap/ble_svc_gap.h"
 
 #include "lvgl.h"
 
@@ -53,6 +54,7 @@ static lv_obj_t *s_battery_label;
 #define DIM_PERCENT       20
 #define FULL_PERCENT      100
 static volatile int64_t s_last_input_us;
+static int s_last_hid_battery = -1;   // 最近一次同步给 HID 电量服务的 SOC
 
 static const char *action_name(media_cmd_t cmd)
 {
@@ -123,6 +125,10 @@ esp_err_t media_remote_init(void)
         return err;
     }
 
+    // esp_hid 只把设备名用于广播；GAP 服务的 Device Name 仍是 NimBLE 默认的
+    // "nimble"，这里补设一次，避免配对后系统把设备显示成 nimble。
+    ble_svc_gap_device_name_set(DEVICE_NAME);
+
     ble_store_config_init();
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
     err = esp_nimble_enable(ble_hid_host_task);
@@ -160,6 +166,12 @@ static void ui_tick(lv_timer_t *t)
     const int soc = bsp_battery_soc();
     if (soc < 0) lv_label_set_text(s_battery_label, "--");
     else lv_label_set_text_fmt(s_battery_label, "%d%%", soc);
+
+    // 同步给 HID 的 Battery Service，Windows 侧能看到真实电量而不是 0%。
+    if (soc >= 0 && s_hid_dev && soc != s_last_hid_battery) {
+        s_last_hid_battery = soc;
+        esp_hidd_dev_battery_set(s_hid_dev, (uint8_t)soc);
+    }
 
     const int64_t now = esp_timer_get_time();
     if (s_action != MEDIA_CMD_NONE && (now - s_action_at_us) < 1500000LL) {
