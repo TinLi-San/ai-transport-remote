@@ -168,9 +168,12 @@ static void ui_tick(lv_timer_t *t)
     else lv_label_set_text_fmt(s_battery_label, "%d%%", soc);
 
     // 同步给 HID 的 Battery Service，Windows 侧能看到真实电量而不是 0%。
-    if (soc >= 0 && s_hid_dev && soc != s_last_hid_battery) {
-        s_last_hid_battery = soc;
+    // 注意：未连接时 esp_hidd_dev_battery_set 会直接返回 ESP_OK 但不写值，
+    // 所以必须仅在「已连接」时才记为已同步，否则连接后永远不会再发。
+    if (soc >= 0 && s_hid_dev && soc != s_last_hid_battery &&
+        esp_hidd_dev_connected(s_hid_dev)) {
         esp_hidd_dev_battery_set(s_hid_dev, (uint8_t)soc);
+        s_last_hid_battery = soc;
     }
 
     const int64_t now = esp_timer_get_time();
@@ -181,6 +184,26 @@ static void ui_tick(lv_timer_t *t)
     }
 
     bsp_display_backlight((now - s_last_input_us) > IDLE_DIM_AFTER_US ? DIM_PERCENT : FULL_PERCENT);
+}
+
+// 一行图例：左侧按键图标，中间短按动作，右侧长按动作。
+static void add_guide_row(lv_obj_t *scr, int y, const char *key_sym,
+                          const char *tap_text, const char *hold_text)
+{
+    lv_obj_t *k = lv_label_create(scr);
+    lv_obj_set_style_text_color(k, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(k, LV_ALIGN_TOP_LEFT, 22, y);
+    lv_label_set_text(k, key_sym);
+
+    lv_obj_t *t = lv_label_create(scr);
+    lv_obj_set_style_text_color(t, lv_color_hex(0xE8F0F7), 0);
+    lv_obj_align(t, LV_ALIGN_TOP_LEFT, 62, y);
+    lv_label_set_text(t, tap_text);
+
+    lv_obj_t *h = lv_label_create(scr);
+    lv_obj_set_style_text_color(h, lv_color_hex(0x9FB3C8), 0);
+    lv_obj_align(h, LV_ALIGN_TOP_LEFT, 148, y);
+    lv_label_set_text(h, hold_text);
 }
 
 void media_remote_ui_build(void)
@@ -194,41 +217,40 @@ void media_remote_ui_build(void)
     lv_obj_t *title = lv_label_create(scr);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
     lv_label_set_text(title, "AI TRANSPORT");
-
-    lv_obj_t *subtitle = lv_label_create(scr);
-    lv_obj_set_style_text_color(subtitle, lv_color_hex(0x9FB3C8), 0);
-    lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 48);
-    lv_label_set_text(subtitle, "Bluetooth Media Remote");
 
     s_battery_label = lv_label_create(scr);
     lv_obj_set_style_text_color(s_battery_label, lv_color_hex(0x9FB3C8), 0);
-    lv_obj_align(s_battery_label, LV_ALIGN_TOP_RIGHT, -12, 12);
+    lv_obj_align(s_battery_label, LV_ALIGN_TOP_RIGHT, -10, 10);
     lv_label_set_text(s_battery_label, "--");
 
     s_status_label = lv_label_create(scr);
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x39FF88), 0);
-    lv_obj_align(s_status_label, LV_ALIGN_CENTER, 0, -34);
+    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 36);
     lv_label_set_text(s_status_label, "Not connected");
+
+    // 图例表头：tap=短按，hold=长按
+    lv_obj_t *tap_hdr = lv_label_create(scr);
+    lv_obj_set_style_text_color(tap_hdr, lv_color_hex(0x6C7A89), 0);
+    lv_obj_align(tap_hdr, LV_ALIGN_TOP_LEFT, 62, 72);
+    lv_label_set_text(tap_hdr, "tap");
+
+    lv_obj_t *hold_hdr = lv_label_create(scr);
+    lv_obj_set_style_text_color(hold_hdr, lv_color_hex(0x6C7A89), 0);
+    lv_obj_align(hold_hdr, LV_ALIGN_TOP_LEFT, 148, 72);
+    lv_label_set_text(hold_hdr, "hold");
+
+    // 三行图例：↑ / ↓ / OK 的短按与长按（图标 + 极少文字）
+    add_guide_row(scr, 100, LV_SYMBOL_UP,   LV_SYMBOL_RIGHT " FF",   LV_SYMBOL_NEXT " Next");
+    add_guide_row(scr, 140, LV_SYMBOL_DOWN, LV_SYMBOL_LEFT " REW",  LV_SYMBOL_PREV " Prev");
+    add_guide_row(scr, 180, LV_SYMBOL_OK,   LV_SYMBOL_PLAY " Play", LV_SYMBOL_STOP " Stop");
 
     s_action_label = lv_label_create(scr);
     lv_obj_set_style_text_color(s_action_label, lv_color_hex(0xFFD928), 0);
-    lv_obj_align(s_action_label, LV_ALIGN_CENTER, 0, 4);
+    lv_obj_align(s_action_label, LV_ALIGN_BOTTOM_MID, 0, -22);
     lv_label_set_text(s_action_label, "");
-
-    lv_obj_t *legend = lv_label_create(scr);
-    lv_obj_set_style_text_color(legend, lv_color_hex(0xC7D3E0), 0);
-    lv_obj_set_style_text_align(legend, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_align(legend, LV_ALIGN_LEFT_MID, 24, 74);
-    lv_label_set_text(legend,
-        "UP   tap: Fast Forward\n"
-        "     hold: Next\n"
-        "DOWN tap: Rewind\n"
-        "     hold: Previous\n"
-        "OK   tap: Play / Pause\n"
-        "     hold: Stop");
 
     s_last_input_us = esp_timer_get_time();
     ui_tick(NULL);                       // 先立即刷新一次，不等首个定时周期
