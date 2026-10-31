@@ -1,0 +1,190 @@
+/* Hallmark · macrostructure: Split Studio · diptych: statement+lede / key table+spec
+ * genre: modern-minimal · theme: custom · vibe: "minimal code, monospace, no gloss"
+ * paper: oklch(14.5% 0.012 255) · accent: oklch(82% 0.16 150) · display: Consolas · body: Consolas + Microsoft YaHei UI
+ * axes: dark / mono / chromatic-green · enrichment: none · nav: none (cover artifact) · footer: Ft4 adapted
+ * studied: no · context: inferred (user: "极简代码风") · artifact: 1200×630 community cover
+ */
+/* Hallmark · pre-emit critique: P5 H5 E4 S4 R5 V4 */
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: clip;
+  background: var(--color-paper);
+}
+
+body {
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.poster {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-xl) var(--space-2xl) var(--space-lg);
+  min-height: 630px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* ── meta row ─────────────────────────────────────────────── */
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  font-size: var(--text-xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.brand::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--color-accent);
+}
+
+.meta__right {
+  margin: 0;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* ── diptych ──────────────────────────────────────────────── */
+.split {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  align-items: center;
+  gap: var(--space-2xl);
+}
+
+.statement {
+  margin: 0;
+  font-size: var(--text-hero);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 400;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.statement span { display: block; }
+
+.lede {
+  margin: var(--space-lg) 0 0;
+  max-width: 40ch;
+  font-size: var(--text-lede);
+  line-height: 1.65;
+}
+
+.lede b {
+  font-weight: 400;
+  color: var(--color-ink);
+}
+
+/* ── key table: the product's entire surface ──────────────── */
+.keys {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.keys caption {
+  text-align: left;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  padding-bottom: var(--space-xs);
+}
+
+.keys th {
+  text-align: left;
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  padding: var(--space-2xs) 0;
+}
+
+.keys td {
+  padding: var(--space-2xs) 0;
+  border-top: 1px solid var(--color-rule);
+}
+
+.keys td:first-child { color: var(--color-accent); }
+.keys td + td { padding-left: var(--space-md); }
+
+.spec {
+  margin: var(--space-lg) 0 0;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* ── foot band ────────────────────────────────────────────── */
+.rule {
+  position: relative;
+  height: var(--rule-thick);
+  margin: 0;
+  border: 0;
+  background: var(--color-rule);
+}
+
+.rule::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 96px;
+  background: var(--color-accent);
+}
+
+.foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+/* Fixed-format cover, but it still collapses to one column so a 320 px preview
+   never scrolls sideways (Hallmark responsive floor). */
+@media (max-width: 860px) {
+  .poster { padding: var(--space-lg) var(--space-md); min-height: 0; }
+  .split { grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--space-xl); }
+  .statement { font-size: clamp(3.25rem, 14vw, 6.5rem); }
+  .foot { flex-direction: column; align-items: flex-start; gap: var(--space-xs); }
+  .note { white-space: normal; }
+  .lede { max-width: 100%; }
+}

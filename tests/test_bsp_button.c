@@ -98,6 +98,32 @@ static void event_cb(bsp_btn_t btn, bsp_btn_ev_t ev, void *u) {
     assert(btn == BSP_BTN_OK && ev == BSP_BTN_CLICK && u == &events);
     ++events;
 }
+
+// 顺序组合键（⏎ 按住后按 ↑/↓）的集成检查：记录 BSP 真正发出的回调。
+static int chord_up, chord_down, ok_clicks;
+static bsp_btn_t last_btn;
+static bsp_btn_ev_t last_ev;
+static void record_cb(bsp_btn_t btn, bsp_btn_ev_t ev, void *u) {
+    (void)u;
+    if (ev == BSP_BTN_CHORD) {
+        if (btn == BSP_BTN_UP) ++chord_up;
+        if (btn == BSP_BTN_DOWN) ++chord_down;
+        last_btn = btn;
+        last_ev = ev;
+        return;
+    }
+    if (btn == BSP_BTN_OK && ev == BSP_BTN_CLICK) ++ok_clicks;
+}
+static uint8_t level_of(int i) { return s_drivers[i].base.get_key_level(&s_drivers[i].base); }
+// 一拍 = 一次新鲜 ADC 采样：时钟前进 2ms，三颗键共用这一次采样。
+static void sample(int mv) {
+    raw_mv = mv;
+    clock_us += 2000;
+    for (int i = 0; i < BSP_BTN_COUNT; ++i) (void)level_of(i);
+}
+static void assert_all_inactive(void) {
+    for (int i = 0; i < BSP_BTN_COUNT; ++i) assert(level_of(i) == BUTTON_INACTIVE);
+}
 static void reset_faults(void) {
     fail_adc = fail_channel = fail_cal = fail_read = fail_convert = fail_delete = 0;
     fail_create = fail_callback = create_calls = callback_calls = 0;
@@ -171,6 +197,64 @@ static void check_voltage(int mv, int expected) {
     }
     assert(reads - before == CONFIG_ADC_BUTTON_SAMPLE_TIMES);
 }
+// ⏎ 先按住、再按 ↑/↓：BSP 必须发出一次 BSP_BTN_CHORD，并且在识别到的那一拍把
+// 三颗键都报成"未按下"——否则方向键的按下沿会漏进 iot_button，变成快进/下一集。
+static void check_sequential_chord(void) {
+    chord_up = chord_down = ok_clicks = 0;
+    last_btn = (bsp_btn_t)-1;
+    last_ev = BSP_BTN_PRESS;
+    assert(button_cleanup() == ESP_OK);
+    assert(bsp_button_init(record_cb, NULL) == ESP_OK);
+
+    // ⏎ 稳定按住两拍(BSP_CHORD_OK_RUN)。
+    sample(595); sample(595);
+    // 再按 ↑：这一拍就发出组合键，且三颗键全部屏蔽。
+    raw_mv = 0; clock_us += 2000;
+    assert_all_inactive();
+    assert(chord_up == 1 && chord_down == 0);
+    assert(last_btn == BSP_BTN_UP && last_ev == BSP_BTN_CHORD);
+
+    // 按住 ↑ 不放：不重复发（音量按一次一步）。
+    sample(0); sample(0);
+    assert(chord_up == 1);
+    assert_all_inactive();
+
+    // 松开 ↑、⏎ 仍按住两拍：仍然屏蔽，不能把 ⏎ 重新报成一次新按下。
+    sample(595); sample(595);
+    assert_all_inactive();
+
+    // 同一组里再按 ↓（↓+⏎ = 212mV，落在 ↓ 窗口）：再发一步。
+    raw_mv = 212; clock_us += 2000;
+    assert_all_inactive();
+    assert(chord_up == 1 && chord_down == 1);
+
+    // 全部松手两拍后解除屏蔽：单独按 ↑ 仍走普通按键路径。
+    sample(3300); sample(3300);
+    raw_mv = 0; clock_us += 2000;
+    assert(level_of(BSP_BTN_UP) == BUTTON_ACTIVE);
+    assert(chord_up == 1 && chord_down == 1);
+    sample(3300);
+
+    // 组合键开始时组件会报 ⏎ 抬起，随后在短按窗口后报单击：BSP 必须吞掉这一次，
+    // 否则按住 ⏎ 调音量会顺带播放/暂停。
+    cb_click(NULL, (void *)(intptr_t)BSP_BTN_OK);
+    assert(ok_clicks == 0);
+
+    // 下一次真实的 ⏎ 按下开启新交互：之后的单击正常转发。
+    cb_press(NULL, (void *)(intptr_t)BSP_BTN_OK);
+    cb_click(NULL, (void *)(intptr_t)BSP_BTN_OK);
+    assert(ok_clicks == 1);
+
+    // ⏎ 只按住一拍就按 ↑：不算组合键（多半是按键抖动），↑ 按普通按键处理。
+    sample(3300);
+    sample(595);
+    raw_mv = 0; clock_us += 2000;
+    assert(level_of(BSP_BTN_UP) == BUTTON_ACTIVE);
+    assert(chord_up == 1 && chord_down == 1);
+
+    assert(button_cleanup() == ESP_OK);
+}
+
 int main(void) {
     for (int i = 1; i <= BSP_BTN_COUNT; ++i) {
         reset_faults(); fail_create = i;
@@ -205,5 +289,6 @@ int main(void) {
     assert(bsp_button_init(event_cb, &events) == ESP_ERR_INVALID_STATE);
     fail_delete = 0; assert(button_cleanup() == ESP_OK); retry_success();
     check_deep_sleep_prepare();
+    check_sequential_chord();
     puts("BSP button fault-injection tests: PASS");
 }

@@ -1,6 +1,7 @@
 // components/bsp/src/bsp_button.c
 // 移植自 trae_card/components/platform/platform_esp32/src/btn_iot_button.c
 #include "bsp_button.h"
+#include "bsp_btn_chord.h"
 #include "bsp_pins.h"
 #include "iot_button.h"
 #include "esp_adc/adc_oneshot.h"
@@ -39,6 +40,23 @@ static int64_t s_sample_time;
 static int s_sample_mv = -1;
 static bool s_sample_valid;
 
+// 顺序组合键（⏎ + ↑/↓ = 音量）的状态机见 bsp_btn_chord.h。
+// 它跟着"新鲜采样"一起推进：三颗键共用同一个采样，所以每拍只前进一步。
+static bsp_chord_t s_chord;
+static bool s_chord_masked;   // 组合键期间三颗键都向组件报"未按下"
+static bool s_ok_swallow;     // 组合键期间的 ⏎ 单击/长按/抬起要吞掉，避免误触播放/暂停、全屏
+
+// 采样值 → 电压窗口。窗口顺序与 bsp_btn_t 一致（↑/↓/⏎ = 1/2/3），
+// 这里靠 BSP_CHORD_WIN_UP + 索引 换算，和下面 BTN_MV 的排列必须保持同步。
+static bsp_chord_win_t window_from_mv(int mv) {
+    for (int i = 0; i < BSP_BTN_COUNT; ++i) {
+        if (mv >= BTN_MV[i][0] && mv < BTN_MV[i][1]) {
+            return (bsp_chord_win_t)(BSP_CHORD_WIN_UP + i);
+        }
+    }
+    return BSP_CHORD_WIN_OPEN;
+}
+
 static uint8_t button_level(button_driver_t *driver) {
     if (!s_ready) return BUTTON_INACTIVE;
     const bsp_adc_button_t *button = (const bsp_adc_button_t *)driver;
@@ -59,8 +77,22 @@ static uint8_t button_level(button_driver_t *driver) {
         if (adc_cali_raw_to_voltage(s_cali, sum / CONFIG_ADC_BUTTON_SAMPLE_TIMES,
                                    &s_sample_mv) != ESP_OK) {
             s_sample_mv = -1;
+            return BUTTON_INACTIVE;
+        }
+        // 先推进组合键状态机，再决定本拍的返回值：识别到 ⏎+方向键时，
+        // 这一拍就必须把三颗键都报成"未按下"，否则方向键的按下沿会漏进
+        // iot_button（随后会变成快进/下一集，甚至在松手后补一次单击）。
+        const bsp_chord_out_t chord = bsp_chord_step(&s_chord, window_from_mv(s_sample_mv));
+        s_chord_masked = chord.masked;
+        if (chord.action != BSP_CHORD_ACTION_NONE) {
+            s_ok_swallow = true;
+            if (s_cb) {
+                s_cb(chord.action == BSP_CHORD_ACTION_UP ? BSP_BTN_UP : BSP_BTN_DOWN,
+                     BSP_BTN_CHORD, s_user);
+            }
         }
     }
+    if (s_chord_masked) return BUTTON_INACTIVE;
     // Half-open windows prevent two keys from matching a shared boundary.
     return s_sample_mv >= BTN_MV[button->index][0] &&
            s_sample_mv < BTN_MV[button->index][1] ? BUTTON_ACTIVE : BUTTON_INACTIVE;
@@ -75,7 +107,18 @@ static esp_err_t button_driver_delete(button_driver_t *driver) {
 static void on_event(void *arg, void *usr_data, bsp_btn_ev_t ev) {
     (void)arg;
     if (!s_ready || !s_cb) return;
-    s_cb((bsp_btn_t)(intptr_t)usr_data, ev, s_user);
+    const bsp_btn_t btn = (bsp_btn_t)(intptr_t)usr_data;
+    if (btn == BSP_BTN_OK) {
+        if (ev == BSP_BTN_PRESS) {
+            // ⏎ 的每次真实按下都开启一次新的交互，从这里恢复事件转发。
+            s_ok_swallow = false;
+        } else if (s_ok_swallow) {
+            // 组合键开始时 ⏎ 会在电压上"消失"，组件随即报抬起并在短按窗口后报单击；
+            // 长按则可能在组合键成立前就已经发出（无法撤回，见 notes/key-chord-limit.md）。
+            return;
+        }
+    }
+    s_cb(btn, ev, s_user);
 }
 static void cb_press (void *a, void *u) { on_event(a, u, BSP_BTN_PRESS);  }
 static void cb_click (void *a, void *u) { on_event(a, u, BSP_BTN_CLICK);  }
@@ -93,6 +136,9 @@ static esp_err_t button_cleanup(void) {
     s_user = NULL;
     s_ready = false;
     s_sample_valid = false;
+    bsp_chord_reset(&s_chord);
+    s_chord_masked = false;
+    s_ok_swallow = false;
 
     for (int i = BSP_BTN_COUNT - 1; i >= 0; i--) {
         if (!s_btn[i]) continue;
@@ -219,6 +265,9 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
     }
 
     s_sample_valid = false;
+    bsp_chord_reset(&s_chord);
+    s_chord_masked = false;
+    s_ok_swallow = false;
     s_ready = true;
     ESP_LOGI(TAG, "按键就绪:ADC1_CH%d 三键分压,短按 %dms 长按 %dms",
              BSP_BTN_ADC_CHANNEL, BSP_BTN_SHORT_PRESS_MS, BSP_BTN_LONG_PRESS_MS);

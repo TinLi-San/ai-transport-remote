@@ -52,9 +52,14 @@ run_static_checks() {
         tests/test_bsp_battery.c -o "${test_dir}/test_bsp_battery"
     "${test_dir}/test_bsp_battery"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-        -Itests/bsp_stubs -Icomponents/bsp/include \
-        tests/test_bsp_button.c -o "${test_dir}/test_bsp_button"
+        -Itests/bsp_stubs -Icomponents/bsp/include -Icomponents/bsp/src \
+        tests/test_bsp_button.c components/bsp/src/bsp_btn_chord.c \
+        -o "${test_dir}/test_bsp_button"
     "${test_dir}/test_bsp_button"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Icomponents/bsp/src \
+        tests/test_bsp_chord.c components/bsp/src/bsp_btn_chord.c \
+        -o "${test_dir}/test_bsp_chord"
+    "${test_dir}/test_bsp_chord"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
         -Itests/bsp_stubs -Icomponents/bsp/include \
         tests/test_bsp_lvgl_init.c components/bsp/src/bsp_display_rounding.c \

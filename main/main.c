@@ -4,9 +4,11 @@
 #include "bsp_button.h"
 #include "bsp_battery.h"
 #include "bsp_pins.h"
+#include "key_guard.h"
 #include "media_remote.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -24,10 +26,18 @@ static QueueHandle_t s_input_queue;
 static TaskHandle_t s_input_task;
 static volatile bool s_input_ready;
 
+// 深睡按键唤醒守卫：本应用不进入深睡、从不武装，key_guard_consume 恒返回 false，
+// 但必须按约定先于就绪检查调用，保证 release 事件也能先行撤防。
+static key_guard_t s_key_guard;
+
 // 按键回调跑在共享 esp_timer 任务里：只入队，立即返回。
 static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
 {
     (void)user;
+    if (key_guard_consume(&s_key_guard, ev == BSP_BTN_RELEASE,
+                          esp_timer_get_time())) {
+        return;
+    }
     if (!s_input_ready || !s_input_queue) return;
     const input_event_t input = { .btn = btn, .event = ev };
     (void)xQueueSend(s_input_queue, &input, 0);

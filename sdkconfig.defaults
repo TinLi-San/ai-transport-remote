@@ -41,8 +41,13 @@ CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_HOST_BASED_PRIVACY=n
-CONFIG_BT_NIMBLE_NVS_PERSIST=n
+# 绑定信息必须持久化：设备一旦断电就重启，RAM 存储会丢 bond，而 Windows 仍保留
+# 旧 bond → 加密协商失败 → 反复 connect/disconnect(HCI 0x13)，直到手动移除设备重新配对。
+# 开启后配对一次长期有效；主动重复配对时 ble_hid_gap 的 REPEAT_PAIRING 分支会丢弃旧 bond。
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
 # HOGP 配对需 Secure Connections + 绑定（代码里已设 sm_sc/bonding），SM 栈开满级别。
 CONFIG_BT_NIMBLE_SM_LVL=2
 # esp_hid 的 NimBLE 设备传输(nimble_hidd.c)与 HID 服务(ble_svc_hid)由它门控，必须开启。
 CONFIG_BT_NIMBLE_HID_SERVICE=y
+# 报告特性上限：键盘输入 + 键盘 LED 输出 + 消费类输入 + 厂商输出报告(Report ID 2) = 4。
+CONFIG_BT_NIMBLE_SVC_HID_MAX_RPTS=4

@@ -1,10 +1,13 @@
 // main/hid_consumer.c —— HID 报告描述符与媒体命令发送。
 //
 // 设备同时暴露两个 HID 顶层集合：
-//   1) 键盘 (Report ID 1)：短按 ↑/↓ 时发送 →/← 方向键，用于「快进/快退」。
-//      Windows 没有 HID 消费类 Fast Forward/Rewind(0xB3/0xB4) 对应的系统媒体键，
-//      用方向键才能被浏览器/播放器当作 seek 处理。
-//   2) 消费类 (Report ID 3)：播放/暂停、上一/下一、停止等系统媒体键。
+//   1) 键盘 (Report ID 1)：短按 ↑/↓ 发送 →/← 方向键用于「快进/快退」(Windows 没有
+//      HID 消费类 Fast Forward/Rewind 对应的系统媒体键，用方向键才能被浏览器/播放器
+//      当作 seek 处理)；长按 ⏎ 发 f 切换全屏。
+//   2) 消费类 (Report ID 3)：播放/暂停、上一/下一等系统媒体键，以及按住 ⏎ 再按
+//      ↑/↓ 触发的音量加/减(Volume Increment 0xE9 / Decrement 0xEA)。
+//      (report map 里仍保留 Stop 0xB7 的声明，但已没有按键映射到它：改描述符会让
+//       Windows 重新枚举 HID 接口，没必要为了删一个 usage 付这个代价。)
 //
 // 消费类报告描述符移植自 esp-idf 示例 examples/bluetooth/esp_hid_device 的
 // mediaReportMap 与 esp_hidd_send_consumer_value()（Apache-2.0 / CC0-1.0），
@@ -114,6 +117,21 @@ static const uint8_t k_report_map[] = {
     0xC0,              //   End Collection
     0x81, 0x03,        //   Input (Const,Var,Abs)
     0xC0,              // End Collection
+
+    // ===== 厂商自定义输出报告，Report ID 2（160 字节）：保留的兼容位 =====
+    // 旧版用它接收电脑下发的会话/直播状态；本固件不再读取。保留描述符是为了不改
+    // GATT 属性表（改描述符会让 Windows 重新枚举 HID、已配对设备需要重新配对）。
+    0x06, 0x00, 0xFF,  // Usage Page (Vendor Defined 0xFF00)
+    0x09, 0x01,        // Usage (Vendor Usage 1)
+    0xA1, 0x01,        // Collection (Application)
+    0x85, 0x02,        //   Report ID (2)
+    0x09, 0x01,        //   Usage (Vendor Usage 1)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+    0x75, 0x08,        //   Report Size (8)
+    0x95, 0xA0,        //   Report Count (160)
+    0x91, 0x02,        //   Output (Data,Var,Abs)
+    0xC0,              // End Collection
 };
 
 esp_hid_raw_report_map_t hid_consumer_report_map = {
@@ -131,12 +149,16 @@ esp_hid_raw_report_map_t hid_consumer_report_map = {
 #define HID_CC_IDX_REWIND     9   // 0xB4
 #define HID_CC_IDX_NEXT       10  // 0xB5
 #define HID_CC_IDX_PREV       11  // 0xB6
-#define HID_CC_IDX_STOP       12  // 0xB7
 #define HID_CC_IDX_PLAY_PAUSE 13  // 0xCD
 
-// USB HID 键盘用法：方向键
+// USB HID 键盘用法：方向键 / 功能键 / 字母键
 #define HID_KB_ARROW_RIGHT    0x4F
 #define HID_KB_ARROW_LEFT     0x50
+#define HID_KB_F              0x09  // B 站/YouTube 等网页播放器的全屏切换键
+
+// 音量加/减在消费类报告里是两个独立的位(byte0 bit6/bit7)，不是上面那种 4 位索引字段。
+#define HID_CC_VOL_INC_MASK   0x40  // Volume Increment 0xE9 = byte0 bit6
+#define HID_CC_VOL_DEC_MASK   0x80  // Volume Decrement 0xEA = byte0 bit7
 
 // 单次触点时长。30ms 足够被主机识别为一次点击。
 #define HID_CC_TAP_MS         30
@@ -150,12 +172,11 @@ static int cmd_to_cc_index(media_cmd_t cmd)
     case MEDIA_CMD_PREV:          return HID_CC_IDX_PREV;
     case MEDIA_CMD_FAST_FORWARD:  return HID_CC_IDX_FAST_FWD;
     case MEDIA_CMD_REWIND:        return HID_CC_IDX_REWIND;
-    case MEDIA_CMD_STOP:          return HID_CC_IDX_STOP;
     default:                      return 0;
     }
 }
 
-// 发送一次键盘按键(按下 -> 短延迟 -> 抬起)。用于 ←/→ 方向键 seek。
+// 发送一次键盘按键(按下 -> 短延迟 -> 抬起)。用于 ←/→ 方向键 seek 与 f 全屏。
 static void hid_keyboard_tap(esp_hidd_dev_t *dev, uint8_t keycode)
 {
     uint8_t buf[HID_KB_IN_RPT_LEN] = {0};
@@ -171,6 +192,26 @@ static void hid_keyboard_tap(esp_hidd_dev_t *dev, uint8_t keycode)
     (void)esp_hidd_dev_input_set(dev, 0, HID_RPT_ID_KB_IN, buf, sizeof(buf));
 }
 
+// 发送一次音量加/减(按下 -> 短延迟 -> 抬起)。音量在报告里占 byte0 的 bit6/bit7，
+// 与媒体键那种「4 位索引」字段不同，故单独一条路径，不走 cmd_to_cc_index()。
+static void hid_consumer_volume_tap(esp_hidd_dev_t *dev, uint8_t mask)
+{
+    uint8_t buf[HID_CC_IN_RPT_LEN] = {0};
+    buf[0] = mask;                       // 按下(byte1 的音乐键索引保持 0)
+    esp_err_t err = esp_hidd_dev_input_set(dev, 0, HID_RPT_ID_CC_IN, buf, sizeof(buf));
+    if (err != ESP_OK) {
+        ESP_LOGW("hid_consumer", "vol press failed: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI("hid_consumer", "TX vol mask=0x%02X", mask);
+    vTaskDelay(pdMS_TO_TICKS(HID_CC_TAP_MS));
+    memset(buf, 0, sizeof(buf));         // 抬起
+    err = esp_hidd_dev_input_set(dev, 0, HID_RPT_ID_CC_IN, buf, sizeof(buf));
+    if (err != ESP_OK) {
+        ESP_LOGW("hid_consumer", "vol release failed: %s", esp_err_to_name(err));
+    }
+}
+
 void hid_consumer_send(esp_hidd_dev_t *dev, media_cmd_t cmd)
 {
     if (!dev) {
@@ -184,6 +225,17 @@ void hid_consumer_send(esp_hidd_dev_t *dev, media_cmd_t cmd)
     }
     if (cmd == MEDIA_CMD_REWIND) {
         hid_keyboard_tap(dev, HID_KB_ARROW_LEFT);
+        return;
+    }
+    // 全屏切换：网页播放器的全屏键(实测 B 站 f 可进/出全屏)。
+    if (cmd == MEDIA_CMD_FULLSCREEN) {
+        hid_keyboard_tap(dev, HID_KB_F);
+        return;
+    }
+    // 音量加/减(按住 ⏎ 再按 ↑/↓)：走消费类报告里的独立音量位。
+    if (cmd == MEDIA_CMD_VOLUME_UP || cmd == MEDIA_CMD_VOLUME_DOWN) {
+        hid_consumer_volume_tap(dev, cmd == MEDIA_CMD_VOLUME_UP ? HID_CC_VOL_INC_MASK
+                                                                : HID_CC_VOL_DEC_MASK);
         return;
     }
 

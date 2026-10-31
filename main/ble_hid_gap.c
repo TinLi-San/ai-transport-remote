@@ -136,8 +136,13 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         ESP_LOGW(TAG, "advertising stopped, reason=%d", event->adv_complete.reason);
         return 0;
     case BLE_GAP_EVENT_SUBSCRIBE:
-    case BLE_GAP_EVENT_MTU:
     case BLE_GAP_EVENT_CONN_UPDATE:
+        return 0;
+    case BLE_GAP_EVENT_MTU:
+        // 诊断用：确认链路上能承载 160 字节的厂商 HID 输出报告。
+        ESP_LOGI(TAG, "mtu update: conn=%u mtu=%u", event->mtu.conn_handle,
+                 event->mtu.value);
+        return 0;
     case BLE_GAP_EVENT_NOTIFY_TX:
         return 0;
     default:
