@@ -10,6 +10,19 @@
 > with `CHANGELOG.zh_CN.md`. The entries currently under `Unreleased` are pending
 > review for the next release; they are not a finalized release history.
 
+## v0.1.0-ai-transport - 2026-10-31
+
+- Added the AI Transport media-remote application: a BLE HID keyboard plus
+  consumer-control device driven by three ADC keys (↑ / ↓ / OK), with a
+  blind-operation screen (device name, battery, connection state, four-row key
+  legend, 1.5 s action name), a 10 s idle backlight-off, and the `OK`-hold +
+  ↑/↓ volume chord. Published to the AI Passport community as a merged image.
+- Removed the host-side live-state channel and its firmware support (vendor
+  output-report polling and the live/podcast split) so the application needs no
+  computer-side helper. The vendor output report remains declared in the HID
+  report descriptor as a compatibility slot, so the GATT attribute table and
+  existing pairings are unchanged.
+
 ## Unreleased
 
 - Added the supplied 80-byte CW2017 profile for the specified 520 mAh cell, including content/update-flag checks, verified writes, the required restart sequence, and bounded SOC-readiness polling.
