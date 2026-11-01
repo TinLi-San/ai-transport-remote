@@ -24,6 +24,12 @@ esp_lcd_panel_io_handle_t bsp_display_io(void);
 // 背光亮度 0..100(%)。LEDC PWM,0=全灭。
 void bsp_display_backlight(uint8_t percent);
 
+// 运行期省电：blank=true 发 DISPOFF，让 ST7789 停止扫描并保留帧存；blank=false 发
+// DISPON 立即恢复画面，不需要重绘。与 deep sleep 的 Sleep In 不同，本接口可逆、
+// 可反复调用；与背光搭配时，亮屏顺序应为 blank(false) 先、背光后，灭屏反之。
+// 未初始化返回 ESP_ERR_INVALID_STATE；重复设置同一状态是空操作。
+esp_err_t bsp_display_blank(bool blank);
+
 // deep sleep 专用：关闭显示、让 ST7789 进入 Sleep In，停止背光 PWM，
 // 将 CS/SCLK/MOSI/DC/背光设为安全电平并在 deep sleep 中保持。调用时必须
 // 已阻止 LVGL 刷屏，调用后必须立即进入 deep sleep 或重启。
@@ -46,3 +52,9 @@ struct _lv_display_t *bsp_lvgl_init(void);
 // LVGL 尚未就绪或超时时 lock 返回 false；只有 lock 成功后才调用 unlock。
 bool bsp_lvgl_lock(int timeout_ms);
 void bsp_lvgl_unlock(void);
+
+// 进入 light sleep 前暂停 LVGL：拿住 LVGL 锁并停掉 tick/定时器，返回 true 后调用方
+// 独占 LVGL（其它任务再 lock 会阻塞），直到 bsp_lvgl_resume()。用于保证睡眠期间没有
+// flush、没有 LVGL 定时唤醒。失败时不改变状态；必须与 bsp_lvgl_resume() 成对调用。
+bool bsp_lvgl_suspend(void);
+void bsp_lvgl_resume(void);

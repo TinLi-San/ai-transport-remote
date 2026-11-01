@@ -3,9 +3,12 @@
 #include "bsp_display.h"
 #include "bsp_button.h"
 #include "bsp_battery.h"
+#include "bsp_audio.h"
 #include "bsp_pins.h"
 #include "key_guard.h"
 #include "media_remote.h"
+#include "power_policy.h"
+#include "power_sleep.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -26,8 +29,8 @@ static QueueHandle_t s_input_queue;
 static TaskHandle_t s_input_task;
 static volatile bool s_input_ready;
 
-// 深睡按键唤醒守卫：本应用不进入深睡、从不武装，key_guard_consume 恒返回 false，
-// 但必须按约定先于就绪检查调用，保证 release 事件也能先行撤防。
+// 深睡按键唤醒守卫：本应用只做 light sleep（不重启、按键组件由本应用重建），
+// 守卫保持不武装，但必须按约定先于就绪检查调用，保证 release 事件也能先行撤防。
 static key_guard_t s_key_guard;
 
 // 按键回调跑在共享 esp_timer 任务里：只入队，立即返回。
@@ -38,6 +41,8 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
                           esp_timer_get_time())) {
         return;
     }
+    // 任意按键都重置 light sleep 的空闲计时（任务里只做定时器读取与通知）。
+    power_sleep_activity();
     if (!s_input_ready || !s_input_queue) return;
     const input_event_t input = { .btn = btn, .event = ev };
     (void)xQueueSend(s_input_queue, &input, 0);
@@ -66,6 +71,22 @@ static esp_err_t input_init(void)
     return ESP_OK;
 }
 
+// 本应用不播放/录音，但 ES8311 上电默认态仍可能耗电（数据手册正常 8 mA / suspend≈0）。
+// 开机初始化后立即挂起；失败只告警，不影响遥控功能。
+static void audio_suspend_unused(void)
+{
+    esp_err_t err = bsp_audio_init();
+    if (err == ESP_OK) {
+        err = bsp_audio_sleep();
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "ES8311 suspend 失败: %s（codec 可能停在默认态）",
+                 esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "ES8311 已挂起（本应用不使用音频）");
+    }
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "AI Transport media remote");
@@ -77,7 +98,7 @@ void app_main(void)
         ESP_LOGE(TAG, "display/LVGL init failed");
         return;
     }
-    bsp_display_backlight(100);
+    bsp_display_backlight(POWER_POLICY_BACKLIGHT_ON_PERCENT);
 
     if (input_init() != ESP_OK) {
         ESP_LOGE(TAG, "input init failed");
@@ -88,6 +109,7 @@ void app_main(void)
         return;
     }
     bsp_battery_init();  // 失败不阻塞：UI 上显示 "--"
+    audio_suspend_unused();
 
     if (bsp_lvgl_lock(1000)) {
         media_remote_ui_build();
@@ -96,6 +118,13 @@ void app_main(void)
     } else {
         ESP_LOGE(TAG, "LVGL lock failed");
         return;
+    }
+
+    // 先把 DFS 配好再启动 BLE（IDF NimBLE power_save 示例也是这个顺序）；睡眠任务
+    // 在屏幕熄灭 + BLE 连接 + 空闲 60 s 之前不会真正入睡。
+    const esp_err_t ps = power_sleep_init(on_key);
+    if (ps != ESP_OK) {
+        ESP_LOGW(TAG, "power_sleep init failed: %s", esp_err_to_name(ps));
     }
 
     const esp_err_t err = media_remote_init();

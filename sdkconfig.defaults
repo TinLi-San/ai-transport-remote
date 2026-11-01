@@ -19,9 +19,9 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
 # --- LVGL ---
 CONFIG_LV_COLOR_DEPTH_16=y
-# 20 ms display refresh period targets up to 50 FPS when rendering and SPI
-# transfer complete within the same budget.
-CONFIG_LV_DEF_REFR_PERIOD=20
+# 产品界面是静态的，没有动画：10 Hz 刷新足够，避免 20 ms 刷新定时器在空闲时把
+# CPU 从 light sleep 拉起来。按键点亮不经过这个定时器（见 media_remote.c）。
+CONFIG_LV_DEF_REFR_PERIOD=100
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 # LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
@@ -51,3 +51,24 @@ CONFIG_BT_NIMBLE_SM_LVL=2
 CONFIG_BT_NIMBLE_HID_SERVICE=y
 # 报告特性上限：键盘输入 + 键盘 LED 输出 + 消费类输入 + 厂商输出报告(Report ID 2) = 4。
 CONFIG_BT_NIMBLE_SVC_HID_MAX_RPTS=4
+
+# --- 功耗：DFS + 显式 light sleep ---
+# 开 PM 后由 main/power_sleep.c 调 esp_pm_configure(80/40 MHz, 自动 light sleep 关闭)；
+# 显式 esp_light_sleep_start() 在空闲 60 s 后由应用自己进入（不依赖 PM 自动入口）。
+CONFIG_PM_ENABLE=y
+# tickless idle 用于自动 light sleep 的 tick 补偿，并满足下面 BLE 主晶振选项的 Kconfig 依赖。
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3
+# light sleep 时关掉 PHY 的 MAC/BB 电源（与 IDF NimBLE power_save 示例一致）。
+CONFIG_ESP_PHY_MAC_BB_PD=y
+# light sleep enter/exit 回调：应用用它统计真正进入自动睡眠的次数（诊断/验证）。
+CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
+# 插着 USB 时禁止自动 light sleep：保护串口控制台，且此时在充电、不需要省电。
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+
+# BLE 控制器在两次连接事件之间断电（modem sleep）。本板没有 32.768 kHz 晶振，
+# 低功耗时钟只能用主晶振；必须允许主晶振在 light sleep 期间上电，否则链路无法维持。
+CONFIG_BT_CTRL_MODEM_SLEEP=y
+CONFIG_BT_CTRL_MODEM_SLEEP_MODE_1=y
+CONFIG_BT_CTRL_LPCLK_SEL_MAIN_XTAL=y
+CONFIG_BT_CTRL_MAIN_XTAL_PU_DURING_LIGHT_SLEEP=y

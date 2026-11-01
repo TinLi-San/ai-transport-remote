@@ -49,6 +49,12 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user);
 // 那时按键还活着。)
 esp_err_t bsp_button_prepare_deep_sleep(int *level);
 
+// light sleep 专用：与 deep sleep 相同的"按键脚交回数字输入 + 上拉"交接，但语义是
+// 可逆的——light sleep 醒来后调用 bsp_button_init() 即可重建 ADC/按键并恢复事件。
+// 调用方必须先用 bsp_button_read_mv() 确认按键已松开(返回 1)；若回读电平不是 1，
+// 说明交接期间被按住，应立即放弃睡眠并重新 init，而不是硬睡。
+esp_err_t bsp_button_prepare_light_sleep(int *level);
+
 // 读当前 ADC 原始电压(mV)。松开时约 3300;按住某键时约为该键的分压值。
 // ★ 换了分压/上拉阻值后,用它测出自己的三档电压,再改 bsp_pins.h 的 BSP_BTN_MV_TABLE。
 // 读取失败返回 -1。

@@ -7,9 +7,15 @@
 static lv_display_t display;
 static int panel_present = 1, lock_depth, port_live, display_live, callback_live;
 static int fail_lock, fail_port, fail_display, fail_event, init_calls, unlocked_flushes;
+static int stop_calls, resume_calls, fail_stop;
 static int panel_token, io_token;
 esp_lcd_panel_handle_t bsp_display_panel(void) { return panel_present ? &panel_token : NULL; }
 esp_lcd_panel_io_handle_t bsp_display_io(void) { return &io_token; }
+esp_err_t lvgl_port_stop(void) {
+    ++stop_calls;
+    return fail_stop ? ESP_ERR_INVALID_STATE : ESP_OK;
+}
+esp_err_t lvgl_port_resume(void) { ++resume_calls; return ESP_OK; }
 esp_err_t lvgl_port_init(const lvgl_port_cfg_t *cfg) {
     (void)cfg; ++init_calls; assert(!port_live);
     if (fail_port) return ESP_ERR_NO_MEM;
@@ -82,5 +88,20 @@ int main(void) {
     lv_event_t ev = { .target = &display, .area = &area };
     rounded_flush_event(&ev);
     assert(pixels[0] == 0 && pixels[BSP_LCD_W - 1] == 0 && pixels[BSP_LCD_W / 2] == 0xffff);
+
+    // Suspend failure must restore the timers and release the lock.
+    fail_stop = 1;
+    assert(!bsp_lvgl_suspend());
+    assert(!lock_depth);
+    assert(stop_calls == 1 && resume_calls == 1);
+    fail_stop = 0;
+
+    // Successful suspend keeps the recursive lock held until resume.
+    assert(bsp_lvgl_suspend());
+    assert(lock_depth == 1);
+    assert(stop_calls == 2 && resume_calls == 1);
+    bsp_lvgl_resume();
+    assert(!lock_depth);
+    assert(stop_calls == 2 && resume_calls == 2);
     puts("BSP LVGL initialization tests: PASS");
 }

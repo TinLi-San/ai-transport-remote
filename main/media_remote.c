@@ -10,6 +10,7 @@
 #include "ble_hid_gap.h"
 #include "hid_consumer.h"
 #include "media_cmd.h"
+#include "power_policy.h"
 
 #include "bsp_battery.h"
 #include "bsp_display.h"
@@ -50,20 +51,34 @@ static esp_hidd_dev_t *s_hid_dev;
 // 跨任务状态：HID 事件回调写 s_connected，input 任务写 s_action*，LVGL 定时器统读并刷新。
 static volatile bool s_connected;
 static volatile media_cmd_t s_action = MEDIA_CMD_NONE;
-static volatile int64_t s_action_at_us;
+static volatile uint32_t s_action_at_ms;
 static volatile bool s_ui_dirty = true;   // 按键/背光点亮时置位：强制重刷全部文本
+static volatile bool s_screen_on = true;
+static volatile uint32_t s_last_input_ms;
+static volatile int s_backlight_percent = -1;   // 最近一次写入 LEDC 的亮度
 
 static lv_obj_t *s_status_label;
 static lv_obj_t *s_action_label;
 static lv_obj_t *s_battery_label;
 
-// 省电：盲操时不看屏，无按键 10 s 后背光全灭，任意按键立即点亮。
+// 省电：盲操时不看屏，无按键 5 s 后背光全灭，任意按键立即点亮到 60%。
 // (旧版是 60 s 后降到 20% 且永不熄灭——背光是整机最大的耗电项之一。)
-#define IDLE_OFF_AFTER_US (10LL * 1000 * 1000)
-#define FULL_PERCENT      100
-#define OFF_PERCENT       0
-static volatile int64_t s_last_input_us;
+static uint32_t s_last_battery_ms;    // 只由 LVGL 定时器读写
+static int s_last_soc = -1;           // 最近一次读到的 SOC（失败为 -1）
 static int s_last_hid_battery = -1;   // 最近一次同步给 HID 电量服务的 SOC
+
+static uint32_t now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+// 只在亮度变化时写 LEDC，避免 ui_tick 每 500 ms 重复配置 PWM。
+static void set_backlight(int percent)
+{
+    if (s_backlight_percent == percent) return;
+    s_backlight_percent = percent;
+    bsp_display_backlight((uint8_t)percent);
+}
 
 static const char *action_name(media_cmd_t cmd)
 {
@@ -157,12 +172,30 @@ static bool hid_ready(void)
     return s_hid_dev && esp_hidd_dev_connected(s_hid_dev);
 }
 
+bool media_remote_is_connected(void)
+{
+    return hid_ready();
+}
+
+bool media_remote_screen_is_on(void)
+{
+    return s_screen_on;
+}
+
+void media_remote_wake_screen(void)
+{
+    s_last_input_ms = now_ms();
+    s_ui_dirty = true;
+    s_screen_on = true;
+    // 先恢复面板扫描，再点背光：避免亮起瞬间看到未就绪的一帧。
+    (void)bsp_display_blank(false);
+    set_backlight(POWER_POLICY_BACKLIGHT_ON_PERCENT);
+}
+
 void media_remote_key(bsp_btn_t btn, bsp_btn_ev_t ev)
 {
-    s_last_input_us = esp_timer_get_time();
-    s_ui_dirty = true;
-    // 背光立刻点亮，不等 500 ms 的 UI 定时器：按键反馈应当是即时的。
-    bsp_display_backlight(FULL_PERCENT);
+    // 任意按键（含按下/松开）立即点亮屏幕；不等 500 ms 的 UI 定时器。
+    media_remote_wake_screen();
 
     if (ev != BSP_BTN_CLICK && ev != BSP_BTN_LONG && ev != BSP_BTN_CHORD) return;
 
@@ -172,7 +205,7 @@ void media_remote_key(bsp_btn_t btn, bsp_btn_ev_t ev)
     if (cmd == MEDIA_CMD_NONE) return;
 
     s_action = cmd;
-    s_action_at_us = esp_timer_get_time();
+    s_action_at_ms = now_ms();
 
     if (hid_ready()) {
         hid_consumer_send(s_hid_dev, cmd);
@@ -186,19 +219,33 @@ void media_remote_key(bsp_btn_t btn, bsp_btn_ev_t ev)
 static void ui_tick(lv_timer_t *t)
 {
     (void)t;
-    const int64_t now = esp_timer_get_time();
+    const uint32_t now = now_ms();
 
-    // 背光策略：按键后 10 s 内全亮，之后全灭。盲操不需要常亮。
-    const bool screen_on = (now - s_last_input_us) <= IDLE_OFF_AFTER_US;
-    bsp_display_backlight(screen_on ? FULL_PERCENT : OFF_PERCENT);
+    // 背光策略：最后输入后 5 s 内亮 60%，之后全灭并 DISPOFF（面板停止扫描）。
+    // 两个 BSP 接口都是幂等的；每拍调用可自动纠正失败/睡眠唤醒后的状态。
+    const bool screen_on = power_policy_screen_on(now, s_last_input_ms);
+    s_screen_on = screen_on;
+    if (screen_on) {
+        (void)bsp_display_blank(false);
+        set_backlight(POWER_POLICY_BACKLIGHT_ON_PERCENT);
+    } else {
+        set_backlight(0);
+        (void)bsp_display_blank(true);
+    }
 
     // 电量同步给 HID Battery Service 与背光无关，熄灭期间也要继续(否则连接后
     // 电量永远不更新：未连接时 esp_hidd_dev_battery_set 会静默丢弃值)。
-    const int soc = bsp_battery_soc();
-    if (soc >= 0 && s_hid_dev && soc != s_last_hid_battery &&
-        esp_hidd_dev_connected(s_hid_dev)) {
-        esp_hidd_dev_battery_set(s_hid_dev, (uint8_t)soc);
-        s_last_hid_battery = soc;
+    // CW2017 读一次约 3 字节 I2C；500 ms 的 UI tick 里再做 5 s 节流。
+    if (power_policy_elapsed_ms(now, s_last_battery_ms) >=
+        POWER_POLICY_BATTERY_REFRESH_MS) {
+        s_last_battery_ms = now;
+        const int soc = bsp_battery_soc();
+        if (soc >= 0) s_last_soc = soc;
+        if (soc >= 0 && s_hid_dev && soc != s_last_hid_battery &&
+            esp_hidd_dev_connected(s_hid_dev)) {
+            esp_hidd_dev_battery_set(s_hid_dev, (uint8_t)soc);
+            s_last_hid_battery = soc;
+        }
     }
 
     if (!screen_on) return;
@@ -207,6 +254,7 @@ static void ui_tick(lv_timer_t *t)
     static int s_shown_soc = -2;
     static media_cmd_t s_shown_action = MEDIA_CMD_NONE;
     const bool dirty = s_ui_dirty;
+    const int shown_soc = s_last_soc;
 
     if (dirty || s_shown_connected != (int)s_connected) {
         lv_label_set_text(s_status_label, s_connected ? "Connected" : "Not connected");
@@ -215,13 +263,14 @@ static void ui_tick(lv_timer_t *t)
         s_shown_connected = (int)s_connected;
     }
 
-    if (dirty || s_shown_soc != soc) {
-        if (soc < 0) lv_label_set_text(s_battery_label, "--");
-        else lv_label_set_text_fmt(s_battery_label, "%d%%", soc);
-        s_shown_soc = soc;
+    if (dirty || s_shown_soc != shown_soc) {
+        if (shown_soc < 0) lv_label_set_text(s_battery_label, "--");
+        else lv_label_set_text_fmt(s_battery_label, "%d%%", shown_soc);
+        s_shown_soc = shown_soc;
     }
 
-    if (s_action != MEDIA_CMD_NONE && (now - s_action_at_us) < 1500000LL) {
+    if (s_action != MEDIA_CMD_NONE &&
+        power_policy_elapsed_ms(now, s_action_at_ms) < 1500u) {
         if (dirty || s_shown_action != s_action) {
             lv_label_set_text(s_action_label, action_name(s_action));
             s_shown_action = s_action;
@@ -298,7 +347,8 @@ void media_remote_ui_build(void)
     lv_obj_align(s_action_label, LV_ALIGN_BOTTOM_MID, 0, -18);
     lv_label_set_text(s_action_label, "");
 
-    s_last_input_us = esp_timer_get_time();
+    s_last_input_ms = now_ms();
+    s_last_battery_ms = now_ms() - POWER_POLICY_BATTERY_REFRESH_MS;
     ui_tick(NULL);                       // 先立即刷新一次，不等首个定时周期
     lv_timer_create(ui_tick, 500, NULL);
     lv_screen_load(scr);

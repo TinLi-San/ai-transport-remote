@@ -96,8 +96,10 @@ esp_err_t ble_hid_gap_adv_start(void)
     struct ble_gap_adv_params adv_params = {0};
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(30);
-    adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(50);
+    // 100–200 ms：已配对设备仍是秒内重连，但未连接时的射频占空比显著低于 30–50 ms。
+    // (配对/首次发现会稍慢；如果真机重连体验变差，先调回 50–100 ms 再评估。)
+    adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(100);
+    adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(200);
 
     // duration_ms = BLE_HS_FOREVER → 永久广播(断开后在 ESP_HIDD_DISCONNECT 回调里重开)。
     // 注意：传 0 表示“0 毫秒”会立即停止广播，必须用 BLE_HS_FOREVER(INT32_MAX)。

@@ -23,6 +23,8 @@ typedef struct {
 } lvgl_port_display_cfg_t;
 esp_err_t lvgl_port_init(const lvgl_port_cfg_t *);
 esp_err_t lvgl_port_deinit(void);
+esp_err_t lvgl_port_stop(void);
+esp_err_t lvgl_port_resume(void);
 bool lvgl_port_lock(uint32_t);
 void lvgl_port_unlock(void);
 lv_display_t *lvgl_port_add_disp(const lvgl_port_display_cfg_t *);

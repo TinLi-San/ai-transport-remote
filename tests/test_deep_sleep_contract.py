@@ -138,6 +138,13 @@ class DeepSleepContractTest(unittest.TestCase):
         self.assertLess(init.index("display_release_deep_sleep_holds()"),
                         init.index("spi_bus_initialize"))
 
+    def test_runtime_blank_is_reversible_dispoff(self) -> None:
+        # Idle light sleep blanks the panel with DISPOFF only. SLEEP IN stays in the
+        # one-way deep-sleep path, otherwise waking would need the full SLPOUT sequence.
+        body = function_body(self.display, "bsp_display_blank")
+        self.assertIn("esp_lcd_panel_disp_on_off", body)
+        self.assertNotIn("disp_sleep", body)
+
     def test_terminal_shutdown_order_precedes_deep_sleep(self) -> None:
         body = function_body(self.demo, "sleep_task")
         calls = [

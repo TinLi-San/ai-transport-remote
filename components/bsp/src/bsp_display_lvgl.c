@@ -130,3 +130,26 @@ bool bsp_lvgl_lock(int timeout_ms) {
 void bsp_lvgl_unlock(void) {
     if (s_disp) lvgl_port_unlock();
 }
+
+bool bsp_lvgl_suspend(void) {
+    if (!s_disp) return false;
+    if (!lvgl_port_lock(1000)) {
+        ESP_LOGE(TAG, "LVGL suspend 拿锁失败，放弃本次睡眠");
+        return false;
+    }
+    if (lvgl_port_stop() != ESP_OK) {
+        // stop 可能已把 lv_timer 关掉；恢复后只放弃加锁，不能留下半停状态。
+        (void)lvgl_port_resume();
+        lvgl_port_unlock();
+        ESP_LOGE(TAG, "LVGL suspend 停 tick 失败，放弃本次睡眠");
+        return false;
+    }
+    // 锁故意不释放：睡眠期间 LVGL 任务会阻塞在 bsp_lvgl_lock()，不会产生 flush 或唤醒。
+    return true;
+}
+
+void bsp_lvgl_resume(void) {
+    if (!s_disp) return;
+    (void)lvgl_port_resume();
+    lvgl_port_unlock();
+}

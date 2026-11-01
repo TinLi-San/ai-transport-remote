@@ -166,6 +166,19 @@ static void check_deep_sleep_prepare(void) {
 
     assert(bsp_button_prepare_deep_sleep(NULL) == ESP_OK);   // level is optional
 
+    // Light sleep uses the same hand-off, but it must be reversible: after prepare,
+    // bsp_button_init() re-creates the ADC/drivers and the pad is usable again.
+    assert(bsp_button_init(event_cb, &events) == ESP_OK);
+    gpio_direction_calls = gpio_pull_calls = gpio_level_calls = 0;
+    gpio_level = 1; level = -1;
+    assert(bsp_button_prepare_light_sleep(&level) == ESP_OK);
+    assert(level == 1);
+    assert(gpio_direction_calls == 1 && gpio_pull_calls == 1 && gpio_level_calls == 1);
+    assert_clean();
+    assert(bsp_button_init(event_cb, &events) == ESP_OK);    // light-sleep wake path
+    (void)button_cleanup();
+    assert_clean();
+
     // A teardown failure must be reported and must NOT reconfigure the pin: leaving
     // a live driver or ADC unit behind while the caller heads toward deep sleep would
     // be silent corruption, so the hand-off refuses to proceed.

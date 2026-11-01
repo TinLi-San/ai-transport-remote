@@ -19,6 +19,7 @@ static esp_lcd_panel_io_handle_t s_io;
 static bool                      s_bus_ready;
 static bool                      s_bl_ready;
 static bool                      s_ready;
+static bool                      s_blanked;   // 运行期 DISPOFF 状态
 
 static const gpio_num_t s_deep_sleep_pins[] = {
     BSP_LCD_CS, BSP_LCD_SCLK, BSP_LCD_MOSI, BSP_LCD_DC, BSP_LCD_BL,
@@ -203,6 +204,7 @@ esp_err_t bsp_display_init(void) {
     e = backlight_init();
     if (e != ESP_OK) goto fail;
     s_ready = true;
+    s_blanked = false;
     ESP_LOGI(TAG, "显示就绪 %dx%d", BSP_LCD_W, BSP_LCD_H);
     return ESP_OK;
 
@@ -240,6 +242,16 @@ void bsp_display_backlight(uint8_t percent) {
     ledc_update_duty(BSP_BL_LEDC_MODE, BSP_BL_LEDC_CHANNEL);
 }
 
+// 可逆的面板空白：DISPOFF 只停扫描，帧存保留，DISPON 后无需重绘。
+// 与 deep-sleep 的 Sleep In 是两条路径：后者一次性、不可逆。
+esp_err_t bsp_display_blank(bool blank) {
+    if (!s_ready || !s_panel) return ESP_ERR_INVALID_STATE;
+    if (blank == s_blanked) return ESP_OK;
+    esp_err_t e = esp_lcd_panel_disp_on_off(s_panel, !blank);
+    if (e == ESP_OK) s_blanked = blank;
+    return e;
+}
+
 esp_err_t bsp_display_prepare_deep_sleep(void) {
     esp_err_t first_error = ESP_OK;
     if (!s_ready || !s_panel) {
@@ -250,6 +262,8 @@ esp_err_t bsp_display_prepare_deep_sleep(void) {
         if (e != ESP_OK) {
             ESP_LOGE(TAG, "ST7789 关闭显示失败: %s", esp_err_to_name(e));
             first_error = e;
+        } else {
+            s_blanked = true;
         }
         e = esp_lcd_panel_disp_sleep(s_panel, true);
         if (e != ESP_OK) {
