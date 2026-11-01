@@ -181,10 +181,18 @@ body {
 /* Fixed-format cover, but it still collapses to one column so a 320 px preview
    never scrolls sideways (Hallmark responsive floor). */
 @media (max-width: 860px) {
-  .poster { padding: var(--space-lg) var(--space-md); min-height: 0; }
-  .split { grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--space-xl); }
+  .poster { padding: var(--space-lg) var(--space-md); min-height: 0; max-width: 100%; }
+  .split { grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--space-xl); min-width: 0; }
+  .split > * { min-width: 0; max-width: 100%; }
   .statement { font-size: clamp(3.25rem, 14vw, 6.5rem); }
+  .keys { table-layout: fixed; }
+  .keys td + td { padding-left: var(--space-xs); }
+  .meta { flex-wrap: wrap; row-gap: var(--space-2xs); }
   .foot { flex-direction: column; align-items: flex-start; gap: var(--space-xs); }
   .note { white-space: normal; }
   .lede { max-width: 100%; }
+  .lede,
+  .note,
+  .spec,
+  .keys { overflow-wrap: anywhere; }
 }
