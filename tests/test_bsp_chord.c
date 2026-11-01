@@ -1,5 +1,5 @@
 // 顺序组合键状态机的宿主测试（纯逻辑，不依赖 ESP-IDF）。
-// 运行方式见 tools/validate.sh：zig/gcc -Icomponents/bsp/src \
+// 运行方式见 tools/validate.sh：zig/gcc -Icomponents/bsp/src
 //     tests/test_bsp_chord.c components/bsp/src/bsp_btn_chord.c
 #include "bsp_btn_chord.h"
 
