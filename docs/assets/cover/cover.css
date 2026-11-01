@@ -3,6 +3,8 @@
  * paper: oklch(14.5% 0.012 255) · accent: oklch(82% 0.16 150) · display: Consolas · body: Consolas + Microsoft YaHei UI
  * axes: dark / mono / chromatic-green · enrichment: none · nav: none (cover artifact) · footer: Ft4 adapted
  * studied: no · context: inferred (user: "极简代码风") · artifact: 1200×630 community cover
+ * key table: rows mirror the on-device legend in main/media_remote.c (add_guide_row calls);
+ * each cell carries the English term the device prints plus a Chinese gloss.
  */
 /* Hallmark · pre-emit critique: P5 H5 E4 S4 R5 V4 */
 
@@ -130,15 +132,35 @@ body {
 }
 
 .keys td {
-  padding: var(--space-2xs) 0;
+  padding: var(--space-xs) 0;
   border-top: 1px solid var(--color-rule);
 }
 
+/* Colour split mirrors the on-device legend: key glyph in signal green,
+   tap column in ink, hold column in the muted tone. */
 .keys td:first-child { color: var(--color-accent); }
+.keys td:nth-child(3) { color: var(--color-muted); }
 .keys td + td { padding-left: var(--space-md); }
 
+/* The Chinese gloss trails the English legend term the device prints, so the
+   cover reads as the same table with a translation rather than a new one. */
+.keys .zh { color: var(--color-muted); }
+
+.hint {
+  margin: var(--space-md) 0 0;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.hint b {
+  font-weight: 400;
+  color: var(--color-ink);
+}
+
 .spec {
-  margin: var(--space-lg) 0 0;
+  margin: var(--space-xs) 0 0;
   font-size: var(--text-2xs);
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -194,5 +216,6 @@ body {
   .lede,
   .note,
   .spec,
+  .hint,
   .keys { overflow-wrap: anywhere; }
 }

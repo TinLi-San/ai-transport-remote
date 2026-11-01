@@ -20,14 +20,24 @@ The cover is a static HTML page; the PNG is a headless-browser screenshot. No bu
 step and no dependencies beyond a Chromium-based browser.
 
 ```powershell
+$root = (Resolve-Path .).Path   # run this from docs/assets
 msedge --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 `
-  --window-size=1200,630 --screenshot=images\cover-ai-transport.png `
-  cover\cover.html
+  --window-size=1200,630 `
+  --screenshot="$root\images\cover-ai-transport.png" `
+  "$root\cover\cover.html"
 ```
 
+The page has to be passed as an absolute path: headless Edge reads a relative argument as a
+URL (`cover\cover.html` becomes `http://cover/cover.html` and the run produces no file).
+
 Open `cover/cover.html` directly in a browser to preview it. Edit `cover/tokens.css`
-for palette/type changes and `cover/cover.css` for layout. The table in the HTML is the
-real key map; keep it in sync with `main/media_cmd.c`.
+for palette/type changes and `cover/cover.css` for layout.
+
+The cover table is not a separate explainer: it is the legend the device prints on its
+own screen — four rows, the same wording (`FF` / `NEXT` / `PLAY` / `FULLSCR` / `VOL+` …),
+with a Chinese gloss added to each cell. The rows come from the `add_guide_row()` calls in
+`main/media_remote.c`; the key mapping itself lives in `main/media_cmd.c`. Change a key
+and update all three.
 
 ## Boundary
 
