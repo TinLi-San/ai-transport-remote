@@ -10,6 +10,20 @@
 > with `CHANGELOG.zh_CN.md`. The entries currently under `Unreleased` are pending
 > review for the next release; they are not a finalized release history.
 
+## v0.1.1-ai-transport - 2026-11-01
+
+- Cut idle power draw: the backlight dims to 60% and the panel blanks after 5 s
+  without a key, LVGL refreshes at 10 Hz, battery polling and BLE advertising
+  intervals are relaxed, and the ES8311 codec is suspended at boot (the
+  application does not use audio).
+- Enabled ESP-IDF power management with automatic light sleep (DFS 80/40 MHz,
+  BLE modem sleep), plus an idle supervisor that stops LVGL and button polling,
+  blanks the panel, and arms GPIO0 low-level wake. Idle stays awake while USB is
+  connected.
+- Verified on device: PM enabled and codec suspended at boot, HID connects, every
+  key action works over USB, and the device wakes from a 90 s idle on a key press;
+  replug recovers. Actual current draw and long-soak behavior remain unmeasured.
+
 ## v0.1.0-ai-transport - 2026-10-31
 
 - Added the AI Transport media-remote application: a BLE HID keyboard plus
